@@ -1,0 +1,83 @@
+name: 'Deploy SPA Cloud Run App'
+description: 'Build and deploy a Single Page Application (SPA) to Google Cloud Storage with Workload Identity Federation'
+author: 'Dávid Szakállas'
+
+inputs:
+  workload_identity_provider:
+    description: 'Workload Identity Provider resource name (e.g. projects/123456789/locations/global/workloadIdentityPools/my-pool/providers/my-provider)'
+    required: true
+  service_account:
+    description: 'Service Account email to impersonate for Google Cloud authentication'
+    required: true
+  gcs_bucket_name:
+    description: 'Target Google Cloud Storage bucket name for deployment (optional if set in env.GCS_BUCKET_NAME)'
+    required: false
+    default: ''
+  node_version:
+    description: 'Version of Node.js to set up'
+    required: false
+    default: '24'
+  cache:
+    description: 'Package manager used for caching dependencies in setup-node (npm, pnpm, yarn, or empty to disable)'
+    required: false
+    default: 'npm'
+  cache_dependency_path:
+    description: 'Path to package lockfile for dependency caching'
+    required: false
+    default: 'package-lock.json'
+  install_command:
+    description: 'Command to install project dependencies'
+    required: false
+    default: 'npm ci'
+  build_command:
+    description: 'Command to build static assets'
+    required: false
+    default: 'make service/build'
+  deploy_command:
+    description: 'Command to deploy assets to Google Cloud Storage'
+    required: false
+    default: 'make service/deploy'
+  working_directory:
+    description: 'Working directory to execute build and deploy commands'
+    required: false
+    default: '.'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v6
+      with:
+        node-version: ${{ inputs.node_version }}
+        cache: ${{ inputs.cache }}
+        cache-dependency-path: ${{ inputs.cache_dependency_path }}
+
+    - name: Install dependencies
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: ${{ inputs.install_command }}
+
+    - name: Build static assets
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: ${{ inputs.build_command }}
+
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v3
+      with:
+        workload_identity_provider: ${{ inputs.workload_identity_provider }}
+        service_account: ${{ inputs.service_account }}
+
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v3
+
+    - name: Upload to GCS
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      env:
+        INPUT_GCS_BUCKET_NAME: ${{ inputs.gcs_bucket_name }}
+      run: |
+        if [ -n "$INPUT_GCS_BUCKET_NAME" ]; then
+          export GCS_BUCKET_NAME="$INPUT_GCS_BUCKET_NAME"
+        fi
+        ${{ inputs.deploy_command }}
