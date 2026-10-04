@@ -6,7 +6,7 @@ A collection of reusable, production-ready GitHub Actions.
 
 | Action                                           | Description                                                |
 | ------------------------------------------------ | ---------------------------------------------------------- |
-| [`deploy-cloud-run-spa`](./deploy-cloud-run-spa) | Build and deploy an SPA to Google Cloud Storage using WIF. |
+| [`deploy-cloud-run-spa`](./deploy-cloud-run-spa) | Deploy pre-built SPA static assets to GCS using WIF.       |
 
 ## Repository Structure
 

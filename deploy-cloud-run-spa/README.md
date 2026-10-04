@@ -1,19 +1,18 @@
 # Deploy SPA Cloud Run App Action
 
-A composite GitHub Action to build and deploy a Single Page Application (SPA)
-to Google Cloud Storage (GCS) using Workload Identity Federation (WIF).
+A composite GitHub Action to deploy pre-built Single Page Application (SPA)
+static assets to Google Cloud Storage (GCS) using Workload Identity Federation (WIF).
 
-This action standardizes the build and deployment pipeline previously replicated
-across projects such as `tisza-panasztar` and `bitter-pug`.
+This action focuses solely on the deployment phase. It authenticates with Google Cloud,
+prepares the Cloud SDK, and synchronizes the built distribution folder to the destination
+GCS bucket via `gcloud storage rsync`.
 
 ## Features
 
-- **Automated Toolchain Setup**: Configures Node.js with package manager caching.
-- **Dependency Installation**: Runs dependency installation (`npm ci` by default).
-- **Asset Building**: Builds SPA assets (`make service/build` by default, customizable).
+- **Deployment Only**: Designed for pre-built applications, decoupled from build tools and Node versions.
 - **Keyless GCP Authentication**: Authenticates securely via Workload Identity Federation.
-- **Google Cloud SDK**: Prepares Google Cloud SDK CLI (`gcloud`) for artifact uploading.
-- **GCS Sync**: Executes deployment target with bucket name resolution.
+- **Direct GCS Sync**: Runs `gcloud storage rsync` with recursive copy and optional stale object cleanup.
+- **Flexible Destination**: Accepts bucket names with or without `gs://` prefix, including nested subpaths.
 
 ## Prerequisites
 
@@ -30,9 +29,7 @@ across projects such as `tisza-panasztar` and `bitter-pug`.
 
 ## Usage
 
-### Basic Example (Convention-based with Makefile)
-
-If your repository contains `service/build` and `service/deploy` Makefile targets:
+### Example
 
 ```yaml
 name: Deploy Service
@@ -41,13 +38,10 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'service/**'
-      - 'package-lock.json'
   workflow_dispatch:
 
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     permissions:
@@ -58,40 +52,46 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Deploy SPA
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Build application
+        run: |
+          npm ci
+          npm run build
+
+      - name: Deploy to GCS
         uses: dszakallas/github-actions/deploy-cloud-run-spa@main
         with:
           workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
           service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
-          gcs_bucket_name: ${{ secrets.GCS_BUCKET_NAME }}
+          bucket: ${{ secrets.GCS_BUCKET_NAME }}
+          source_dir: dist
 ```
 
-### Custom Build and Deploy Commands
+### Destination with Subpath
 
-For projects not using `make service/build` / `make service/deploy`:
+To deploy to a specific prefix inside the bucket (e.g. `dist/app`):
 
 ```yaml
-      - name: Deploy SPA
+      - name: Deploy to GCS
         uses: dszakallas/github-actions/deploy-cloud-run-spa@main
         with:
           workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
           service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
-          gcs_bucket_name: ${{ secrets.GCS_BUCKET_NAME }}
-          build_command: npm run build
-          deploy_command: gcloud storage rsync -r dist/ "gs://${GCS_BUCKET_NAME}/"
+          bucket: ${{ secrets.GCS_BUCKET_NAME }}/dist/app
+          source_dir: service/dist
 ```
 
 ## Inputs
 
-| Input                        | Description                              | Required | Default                |
-| ---------------------------- | ---------------------------------------- | -------- | ---------------------- |
-| `workload_identity_provider` | Workload Identity Provider resource name | Yes      | —                      |
-| `service_account`            | Service account email to impersonate     | Yes      | —                      |
-| `gcs_bucket_name`            | Target Google Cloud Storage bucket name  | No       | `""`                   |
-| `node_version`               | Node.js version                          | No       | `'24'`                 |
-| `cache`                      | Package manager cache in `setup-node`    | No       | `'npm'`                |
-| `cache_dependency_path`      | Dependency lockfile path                 | No       | `'package-lock.json'`  |
-| `install_command`            | Dependency installation command          | No       | `'npm ci'`             |
-| `build_command`              | Build static assets command              | No       | `'make service/build'` |
-| `deploy_command`             | Deployment command to upload assets      | No       | `'make service/deploy'`|
-| `working_directory`          | Directory to execute commands in         | No       | `'.'`                  |
+| Input                        | Description                                  | Required | Default  |
+| ---------------------------- | -------------------------------------------- | -------- | -------- |
+| `workload_identity_provider` | Workload Identity Provider resource name     | Yes      | —        |
+| `service_account`            | Service account email to impersonate         | Yes      | —        |
+| `bucket`                     | Target GCS bucket or path (e.g. `my-bucket`) | Yes      | —        |
+| `source_dir`                 | Local directory containing built static files| No       | `'dist'` |
+| `delete_unmatched`           | Delete destination objects not in source     | No       | `'true'` |
